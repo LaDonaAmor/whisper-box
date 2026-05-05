@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Search, Plus, Loader2, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -51,6 +51,9 @@ export default function ConversationsSidebar({
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<UserPublicInfo[]>([]);
 
+  // ✅ input ref for focusing
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -68,6 +71,13 @@ export default function ConversationsSidebar({
       cancelled = true;
     };
   }, [refreshKey]);
+
+  // ✅ Auto-focus when search opens
+  useEffect(() => {
+    if (searching) {
+      inputRef.current?.focus();
+    }
+  }, [searching]);
 
   // Search debounced
   useEffect(() => {
@@ -90,6 +100,7 @@ export default function ConversationsSidebar({
     <aside className="flex h-full w-full flex-col border-r border-border bg-sidebar/60 backdrop-blur-xl">
       <header className="flex items-center justify-between gap-2 px-4 pt-5 pb-3">
         <h2 className="text-lg font-semibold tracking-tight">Messages</h2>
+
         <Button
           variant="ghost"
           size="icon"
@@ -108,7 +119,16 @@ export default function ConversationsSidebar({
       <div className="px-4 pb-3">
         <div className="relative">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+
+          {/* ✅ Accessible label */}
+          <label htmlFor="search" className="sr-only">
+            Search users
+          </label>
+
           <Input
+            id="search"
+            ref={inputRef}
+            tabIndex={0}
             placeholder={searching ? "Find someone by username…" : "Search"}
             value={query}
             onChange={(e) => {
@@ -146,6 +166,7 @@ export default function ConversationsSidebar({
                     <div className="flex h-10 w-10 items-center justify-center rounded-full bg-mine text-sm font-semibold text-primary-foreground">
                       {initials(u.display_name)}
                     </div>
+
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-sm font-medium">
                         {u.display_name}
@@ -165,8 +186,8 @@ export default function ConversationsSidebar({
           </div>
         ) : (
           (() => {
-            // Merge pinned (newly opened) chats with server conversations
             const map = new Map<string, ConversationSummary>();
+
             for (const p of pinned) {
               map.set(p.id, {
                 user_id: p.id,
@@ -175,7 +196,9 @@ export default function ConversationsSidebar({
                 last_message_at: null,
               });
             }
+
             for (const c of conversations) map.set(c.user_id, c);
+
             const merged = Array.from(map.values()).sort((a, b) => {
               const ta = a.last_message_at
                 ? new Date(a.last_message_at).getTime()
@@ -185,6 +208,7 @@ export default function ConversationsSidebar({
                 : 0;
               return tb - ta;
             });
+
             if (merged.length === 0) {
               return (
                 <div className="px-4 py-10 text-center text-sm text-muted-foreground">
@@ -193,6 +217,7 @@ export default function ConversationsSidebar({
                 </div>
               );
             }
+
             return (
               <ul className="space-y-0.5">
                 {merged.map((c) => (
@@ -215,6 +240,7 @@ export default function ConversationsSidebar({
                       <div className="flex h-10 w-10 items-center justify-center rounded-full bg-mine text-sm font-semibold text-primary-foreground">
                         {initials(c.display_name)}
                       </div>
+
                       <div className="min-w-0 flex-1">
                         <div className="flex items-baseline justify-between gap-2">
                           <span className="truncate text-sm font-medium">
