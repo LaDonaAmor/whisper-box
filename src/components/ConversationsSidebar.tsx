@@ -131,7 +131,7 @@ export default function ConversationsSidebar({
               results.map((u) => (
                 <li key={u.id}>
                   <button
-                    className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition hover:bg-accent"
+                    className="flex w-full cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-left transition hover:bg-accent"
                     onClick={() => {
                       onSelect({
                         id: u.id,
@@ -199,7 +199,7 @@ export default function ConversationsSidebar({
                   <li key={c.user_id}>
                     <button
                       className={cn(
-                        "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition",
+                        "flex w-full cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-left transition",
                         selectedUserId === c.user_id
                           ? "bg-accent"
                           : "hover:bg-accent/60",

@@ -128,7 +128,7 @@ export default function AuthCard({ initialMode = "login" }: Props) {
           <Button
             type="submit"
             disabled={busy}
-            className="h-11 w-full rounded-xl bg-mine text-primary-foreground shadow-bubble transition hover:opacity-95"
+            className="h-11 w-full cursor-pointer rounded-xl bg-mine text-primary-foreground shadow-bubble transition hover:opacity-95"
           >
             {busy ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -151,7 +151,7 @@ export default function AuthCard({ initialMode = "login" }: Props) {
               : "Already have an account?"}{" "}
             <button
               type="button"
-              className="font-medium text-primary hover:underline"
+              className="font-medium cursor-pointer text-primary hover:underline"
               onClick={() => setMode(mode === "login" ? "register" : "login")}
             >
               {mode === "login" ? "Create account" : "Sign in"}
