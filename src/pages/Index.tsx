@@ -72,11 +72,11 @@ const Index = () => {
         <link rel="canonical" href="/" />
       </Helmet>
 
-      <main className="flex h-[100dvh] w-full overflow-hidden">
+      <main className="flex h-dvh w-full overflow-hidden">
         {/* Sidebar column */}
         <div
           className={cn(
-            "flex w-full flex-col border-r border-border md:w-[340px] md:max-w-[380px]",
+            "flex w-full flex-col border-r border-border md:w-85 md:max-w-95",
             peer && "hidden md:flex",
           )}
         >
