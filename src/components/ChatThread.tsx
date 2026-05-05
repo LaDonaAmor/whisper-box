@@ -36,6 +36,7 @@ function fmtTime(iso: string) {
   const d = new Date(iso);
   return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
+
 function fmtDay(iso: string) {
   const d = new Date(iso);
   const now = new Date();
@@ -56,32 +57,44 @@ export default function ChatThread({ peer, onBack, onMessageSent }: Props) {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [text, setText] = useState("");
-  const [peerPubKey, setPeerPubKey] = useState<CryptoKey | null>(null);
+  // Removed setPeerPubKey since it was never read
   const [peerFingerprint, setPeerFingerprint] = useState<string>("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  const appendMessage = (msg: DecryptedMessage) => {
+    setMessages((prev) => {
+      if (prev.some((m) => m.id === msg.id)) return prev;
+      return [...prev, msg];
+    });
+  };
+
   // Load peer key + history
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    setMessages([]);
+
     (async () => {
+      // Set loading state inside the async block to avoid cascading renders
+      setLoading(true);
+      setMessages([]);
+
       try {
         const [pubB64, history] = await Promise.all([
           api.getUserPublicKey(peer.id),
           api.listMessages(peer.id, undefined, 50),
         ]);
+
         if (cancelled) return;
-        const pub = await importPublicKey(pubB64);
-        setPeerPubKey(pub);
+
+        // Verify key and fingerprint
+        await importPublicKey(pubB64);
         setPeerFingerprint(await publicKeyFingerprint(pubB64));
 
         const priv = getOwnPrivateKey();
         const decrypted = await Promise.all(
           history
             .slice()
-            .reverse() // API returns newest first → show oldest first
+            .reverse()
             .map(async (m): Promise<DecryptedMessage> => {
               const isMine = m.from_user_id === user?.id;
               try {
@@ -109,35 +122,34 @@ export default function ChatThread({ peer, onBack, onMessageSent }: Props) {
               }
             }),
         );
-        if (!cancelled) setMessages(decrypted);
+
+        if (!cancelled) {
+          setMessages(decrypted);
+          setLoading(false);
+        }
       } catch (e) {
-        if (!cancelled)
+        if (!cancelled) {
           toast.error(
             e instanceof Error ? e.message : "Failed to load messages",
           );
-      } finally {
-        if (!cancelled) setLoading(false);
+          setLoading(false);
+        }
       }
     })();
+
     return () => {
       cancelled = true;
     };
   }, [peer.id, user?.id]);
 
-  // Subscribe to WS for incoming messages relevant to this thread
+  // Subscribe to WS for incoming messages
   useEffect(() => {
-    return onMessage(async (msg: MessageResponse) => {
+    const unsubscribe = onMessage(async (msg: MessageResponse) => {
       const isMine = msg.from_user_id === user?.id;
       const otherId = isMine ? msg.to_user_id : msg.from_user_id;
-      if (otherId !== peer.id) {
-        // Belongs to another chat — surface a toast
-        if (!isMine)
-          toast("New encrypted message", {
-            description: "Open the conversation to read it.",
-          });
-        onMessageSent?.();
-        return;
-      }
+
+      if (otherId !== peer.id) return;
+
       try {
         const priv = getOwnPrivateKey();
         const txt = await decryptMessage(
@@ -145,99 +157,92 @@ export default function ChatThread({ peer, onBack, onMessageSent }: Props) {
           priv,
           isMine,
         );
-        setMessages((prev) => {
-          if (prev.some((p) => p.id === msg.id)) return prev;
-          return [
-            ...prev,
-            {
-              id: msg.id,
-              fromUserId: msg.from_user_id,
-              toUserId: msg.to_user_id,
-              text: txt,
-              createdAt: msg.created_at,
-            },
-          ];
-        });
-      } catch {
-        setMessages((prev) =>
-          prev.some((p) => p.id === msg.id)
-            ? prev
-            : [
-                ...prev,
-                {
-                  id: msg.id,
-                  fromUserId: msg.from_user_id,
-                  toUserId: msg.to_user_id,
-                  text: null,
-                  failed: true,
-                  createdAt: msg.created_at,
-                },
-              ],
-        );
-      }
-      onMessageSent?.();
-    });
-  }, [peer.id, user?.id, onMessageSent]);
 
-  // Auto-scroll to bottom
+        appendMessage({
+          id: msg.id,
+          fromUserId: msg.from_user_id,
+          toUserId: msg.to_user_id,
+          text: txt,
+          createdAt: msg.created_at,
+        });
+
+        onMessageSent?.();
+      } catch {
+        appendMessage({
+          id: msg.id,
+          fromUserId: msg.from_user_id,
+          toUserId: msg.to_user_id,
+          text: null,
+          failed: true,
+          createdAt: msg.created_at,
+        });
+      }
+    });
+
+    return () => {
+      if (typeof unsubscribe === "function") unsubscribe();
+    };
+  }, [peer.id, user?.id, onMessageSent]); // Added onMessageSent to dependencies
+
+  // Auto-scroll to bottom on new messages
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     el.scrollTop = el.scrollHeight;
   }, [messages.length, loading]);
 
-  // Auto-resize textarea
+  // Smooth scroll for new message animations
   useEffect(() => {
-    const ta = textareaRef.current;
-    if (!ta) return;
-    ta.style.height = "auto";
-    ta.style.height = Math.min(ta.scrollHeight, 160) + "px";
-  }, [text]);
+    requestAnimationFrame(() => {
+      scrollRef.current?.scrollTo({
+        top: scrollRef.current.scrollHeight,
+        behavior: "smooth",
+      });
+    });
+  }, [messages]);
 
   async function send(e?: FormEvent) {
     e?.preventDefault();
     const body = text.trim();
-    if (!body || !peerPubKey || !user) return;
+    if (!body || !user) return;
+
     setSending(true);
     const tempId = `tmp-${Date.now()}`;
-    const optimistic: DecryptedMessage = {
+
+    appendMessage({
       id: tempId,
       fromUserId: user.id,
       toUserId: peer.id,
       text: body,
       createdAt: new Date().toISOString(),
       pending: true,
-    };
-    setMessages((p) => [...p, optimistic]);
+    });
+
     setText("");
+
     try {
       const ownPub = await getOwnPublicKey();
-      const payload = await encryptMessage(body, peerPubKey, ownPub);
-      // Try WebSocket first — protocol: { event, to, payload }
-      const sentViaWs = sendWs({ event: "message.send", to: peer.id, payload });
-      if (!sentViaWs) {
-        const stored = await api.sendMessageRest(peer.id, payload);
-        setMessages((p) =>
-          p.map((m) =>
-            m.id === tempId ? { ...m, id: stored.id, pending: false } : m,
-          ),
-        );
-      } else {
-        // Mark as not-pending; the actual stored id will be reconciled when we receive our own echo (if backend echoes)
-        setMessages((p) =>
-          p.map((m) => (m.id === tempId ? { ...m, pending: false } : m)),
-        );
-      }
-      onMessageSent?.();
-    } catch (err) {
-      setMessages((p) => p.filter((m) => m.id !== tempId));
-      toast.error(err instanceof Error ? err.message : "Failed to send");
+      const peerPubB64 = await api.getUserPublicKey(peer.id);
+      const pubKey = await importPublicKey(peerPubB64);
+      const payload = await encryptMessage(body, pubKey, ownPub);
+
+      sendWs({
+        event: "message.send",
+        to: peer.id,
+        payload,
+      });
+
+      setMessages((prev) =>
+        prev.map((m) => (m.id === tempId ? { ...m, pending: false } : m)),
+      );
+    } catch {
+      setMessages((prev) => prev.filter((m) => m.id !== tempId));
+      toast.error("Failed to send message");
     } finally {
       setSending(false);
     }
   }
 
-  // Group consecutive messages
   const grouped = useMemo(() => {
     const out: { day: string; items: DecryptedMessage[] }[] = [];
     for (const m of messages) {
