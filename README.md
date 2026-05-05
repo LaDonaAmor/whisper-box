@@ -1,7 +1,9 @@
 # WhisperBox
 
 End-to-end encrypted messaging built on the WhisperBox API
-(`https://whisperbox.koyeb.app`). All cryptography happens in the browser
+(`https://whisperbox.koyeb.app`).
+
+All cryptography happens in the browser
 using the Web Crypto API. The server stores and forwards only ciphertext.
 
 ---
