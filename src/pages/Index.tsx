@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Helmet } from "react-helmet-async";
 import {
   Bell,
@@ -33,18 +33,41 @@ interface Peer {
   username: string;
 }
 
+const UNREAD_KEY = "wb.unreadCounts";
+
+function readUnreadCounts(): Record<string, number> {
+  try {
+    return JSON.parse(sessionStorage.getItem(UNREAD_KEY) ?? "{}") as Record<
+      string,
+      number
+    >;
+  } catch {
+    return {};
+  }
+}
+
 const Index = () => {
   const { user, loading, locked, logout } = useAuth();
   const [peer, setPeer] = useState<Peer | null>(null);
   const [openedChats, setOpenedChats] = useState<Peer[]>([]);
   const [hiddenChats, setHiddenChats] = useState<string[]>([]);
-  const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
+  const [unreadCounts, setUnreadCounts] =
+    useState<Record<string, number>>(readUnreadCounts);
   const [convRefresh, setConvRefresh] = useState(0);
   const [wsStatus, setWsStatus] = useState<"connecting" | "open" | "closed">(
     "closed",
   );
+  const activePeerIdRef = useRef<string | null>(null);
 
   useEffect(() => onStatus(setWsStatus), []);
+
+  useEffect(() => {
+    activePeerIdRef.current = peer?.id ?? null;
+  }, [peer?.id]);
+
+  useEffect(() => {
+    sessionStorage.setItem(UNREAD_KEY, JSON.stringify(unreadCounts));
+  }, [unreadCounts]);
 
   useEffect(() => {
     if (!user || locked || !("Notification" in window)) return;
@@ -58,7 +81,9 @@ const Index = () => {
     return onMessage((msg) => {
       if (msg.from_user_id === user.id) return;
       const senderId = msg.from_user_id;
-      const isActiveChat = peer?.id === senderId && document.hasFocus();
+      const isVisible =
+        document.visibilityState === "visible" && document.hasFocus();
+      const isActiveChat = activePeerIdRef.current === senderId && isVisible;
 
       if (!isActiveChat) {
         setUnreadCounts((prev) => ({
@@ -78,7 +103,33 @@ const Index = () => {
 
       setConvRefresh((n) => n + 1);
     });
-  }, [peer?.id, user]);
+  }, [user]);
+
+  useEffect(() => {
+    const clearActiveUnread = () => {
+      const activeId = activePeerIdRef.current;
+      if (
+        !activeId ||
+        document.visibilityState !== "visible" ||
+        !document.hasFocus()
+      ) {
+        return;
+      }
+      setUnreadCounts((prev) => {
+        if (!prev[activeId]) return prev;
+        const next = { ...prev };
+        delete next[activeId];
+        return next;
+      });
+    };
+
+    window.addEventListener("focus", clearActiveUnread);
+    document.addEventListener("visibilitychange", clearActiveUnread);
+    return () => {
+      window.removeEventListener("focus", clearActiveUnread);
+      document.removeEventListener("visibilitychange", clearActiveUnread);
+    };
+  }, []);
 
   function selectPeer(p: Peer) {
     setPeer(p);
@@ -108,6 +159,17 @@ const Index = () => {
     setPeer(null);
     toast.success("Conversation hidden on this device");
   }
+
+  async function handleLogout() {
+    sessionStorage.removeItem(UNREAD_KEY);
+    setUnreadCounts({});
+    await logout();
+  }
+
+  const totalUnread = Object.values(unreadCounts).reduce(
+    (sum, count) => sum + count,
+    0,
+  );
 
   if (loading) {
     return (
@@ -139,7 +201,9 @@ const Index = () => {
   return (
     <>
       <Helmet>
-        <title>WhisperBox - Secure Chat</title>
+        <title>
+          {totalUnread > 0 ? `(${totalUnread}) ` : ""}WhisperBox - Secure Chat
+        </title>
         <meta
           name="description"
           content="End-to-end encrypted messaging. Your conversations stay between you and the recipient."
@@ -216,7 +280,7 @@ const Index = () => {
                     <Bell className="mr-2 h-4 w-4" /> Enable notifications
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={logout}>
+                  <DropdownMenuItem onClick={handleLogout}>
                     <LogOut className="mr-2 h-4 w-4" /> Sign out
                   </DropdownMenuItem>
                 </DropdownMenuContent>
