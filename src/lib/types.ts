@@ -45,12 +45,24 @@ export interface ConversationSummary {
   last_message_at: string | null;
 }
 
+export type MessageContent =
+  | { kind: "text"; text: string }
+  | {
+      kind: "file";
+      name: string;
+      mimeType: string;
+      size: number;
+      dataUrl: string;
+      caption?: string;
+    };
+
 // Local decrypted message for UI
 export interface DecryptedMessage {
   id: string;
   fromUserId: string;
   toUserId: string;
   text: string | null; // null if decryption failed
+  content?: MessageContent;
   failed?: boolean;
   createdAt: string;
   pending?: boolean;

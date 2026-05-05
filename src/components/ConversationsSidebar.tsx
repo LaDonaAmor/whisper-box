@@ -15,6 +15,8 @@ interface Props {
   }) => void;
   refreshKey: number;
   pinned?: { id: string; display_name: string; username: string }[];
+  unreadCounts?: Record<string, number>;
+  hiddenUserIds?: string[];
 }
 
 function initials(name: string) {
@@ -45,6 +47,8 @@ export default function ConversationsSidebar({
   onSelect,
   refreshKey,
   pinned = [],
+  unreadCounts = {},
+  hiddenUserIds = [],
 }: Props) {
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -107,12 +111,19 @@ export default function ConversationsSidebar({
     }
 
     for (const c of conversations) map.set(c.user_id, c);
+    const hidden = new Set(hiddenUserIds);
 
-    return Array.from(map.values()).sort((a, b) => {
-      const ta = a.last_message_at ? new Date(a.last_message_at).getTime() : 0;
-      const tb = b.last_message_at ? new Date(b.last_message_at).getTime() : 0;
-      return tb - ta;
-    });
+    return Array.from(map.values())
+      .filter((c) => !hidden.has(c.user_id))
+      .sort((a, b) => {
+        const ta = a.last_message_at
+          ? new Date(a.last_message_at).getTime()
+          : 0;
+        const tb = b.last_message_at
+          ? new Date(b.last_message_at).getTime()
+          : 0;
+        return tb - ta;
+      });
   })();
 
   return (
@@ -210,7 +221,7 @@ export default function ConversationsSidebar({
               ))
             )}
           </ul>
-        ) : loading ? (
+        ) : loading && merged.length === 0 ? (
           <div className="flex items-center justify-center py-10 text-muted-foreground">
             <Loader2 className="h-5 w-5 animate-spin" />
           </div>
@@ -222,7 +233,9 @@ export default function ConversationsSidebar({
           </div>
         ) : (
           <ul className="space-y-0.5">
-            {merged.map((c) => (
+            {merged.map((c) => {
+              const unread = unreadCounts[c.user_id] ?? 0;
+              return (
               <li key={c.user_id}>
                 <button
                   className={cn(
@@ -247,9 +260,19 @@ export default function ConversationsSidebar({
                       <span className="truncate text-sm font-medium">
                         {c.display_name}
                       </span>
-                      <span className="shrink-0 text-[11px] text-muted-foreground">
-                        {formatTime(c.last_message_at)}
-                      </span>
+                      <div className="flex shrink-0 items-center gap-1.5">
+                        {unread > 0 && (
+                          <span
+                            className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[10px] font-semibold leading-none text-primary-foreground"
+                            aria-label={`${unread} unread messages`}
+                          >
+                            {unread > 9 ? "9+" : unread}
+                          </span>
+                        )}
+                        <span className="text-[11px] text-muted-foreground">
+                          {formatTime(c.last_message_at)}
+                        </span>
+                      </div>
                     </div>
                     <div className="truncate text-xs text-muted-foreground">
                       @{c.username}
@@ -257,7 +280,8 @@ export default function ConversationsSidebar({
                   </div>
                 </button>
               </li>
-            ))}
+              );
+            })}
           </ul>
         )}
       </div>

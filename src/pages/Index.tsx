@@ -1,14 +1,31 @@
 import { useEffect, useState } from "react";
 import { Helmet } from "react-helmet-async";
-import { LogOut, Lock, Wifi, WifiOff, ShieldCheck } from "lucide-react";
+import {
+  Bell,
+  LogOut,
+  Lock,
+  ShieldCheck,
+  User,
+  Wifi,
+  WifiOff,
+} from "lucide-react";
 import AuthCard from "@/components/AuthCard";
 import ConversationsSidebar from "@/components/ConversationsSidebar";
 import ChatThread from "@/components/ChatThread";
 import ThemeToggle from "@/components/ThemeToggle";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
-import { onStatus } from "@/lib/ws";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { onMessage, onStatus } from "@/lib/ws";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 interface Peer {
   id: string;
@@ -20,6 +37,8 @@ const Index = () => {
   const { user, loading, locked, logout } = useAuth();
   const [peer, setPeer] = useState<Peer | null>(null);
   const [openedChats, setOpenedChats] = useState<Peer[]>([]);
+  const [hiddenChats, setHiddenChats] = useState<string[]>([]);
+  const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
   const [convRefresh, setConvRefresh] = useState(0);
   const [wsStatus, setWsStatus] = useState<"connecting" | "open" | "closed">(
     "closed",
@@ -27,11 +46,67 @@ const Index = () => {
 
   useEffect(() => onStatus(setWsStatus), []);
 
+  useEffect(() => {
+    if (!user || locked || !("Notification" in window)) return;
+    if (Notification.permission === "default") {
+      Notification.requestPermission().catch(() => undefined);
+    }
+  }, [user, locked]);
+
+  useEffect(() => {
+    if (!user) return;
+    return onMessage((msg) => {
+      if (msg.from_user_id === user.id) return;
+      const senderId = msg.from_user_id;
+      const isActiveChat = peer?.id === senderId && document.hasFocus();
+
+      if (!isActiveChat) {
+        setUnreadCounts((prev) => ({
+          ...prev,
+          [senderId]: (prev[senderId] ?? 0) + 1,
+        }));
+        toast.info("New encrypted message", {
+          description: "Open the chat to decrypt it on this device.",
+        });
+        if ("Notification" in window && Notification.permission === "granted") {
+          new Notification("WhisperBox", {
+            body: "New encrypted message. Open WhisperBox to decrypt it.",
+            tag: msg.id,
+          });
+        }
+      }
+
+      setConvRefresh((n) => n + 1);
+    });
+  }, [peer?.id, user]);
+
   function selectPeer(p: Peer) {
     setPeer(p);
+    setHiddenChats((prev) => prev.filter((id) => id !== p.id));
+    setUnreadCounts((prev) => {
+      if (!prev[p.id]) return prev;
+      const next = { ...prev };
+      delete next[p.id];
+      return next;
+    });
     setOpenedChats((prev) =>
       prev.some((x) => x.id === p.id) ? prev : [p, ...prev],
     );
+  }
+
+  function deleteActiveConversation() {
+    if (!peer) return;
+    setHiddenChats((prev) =>
+      prev.includes(peer.id) ? prev : [...prev, peer.id],
+    );
+    setOpenedChats((prev) => prev.filter((p) => p.id !== peer.id));
+    setUnreadCounts((prev) => {
+      const next = { ...prev };
+      delete next[peer.id];
+      return next;
+    });
+    setPeer(null);
+    toast.success("Conversation hidden on this device");
   }
 
   if (loading) {
@@ -107,15 +182,45 @@ const Index = () => {
             </div>
             <div className="flex items-center gap-1">
               <ThemeToggle />
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-9 w-9 rounded-lg"
-                onClick={logout}
-                aria-label="Sign out"
-              >
-                <LogOut className="h-4 w-4" />
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-9 w-9 rounded-lg"
+                    aria-label="Profile"
+                  >
+                    <User className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-64">
+                  <DropdownMenuLabel>
+                    <div className="truncate text-sm">{user.display_name}</div>
+                    <div className="truncate text-xs font-normal text-muted-foreground">
+                      @{user.username}
+                    </div>
+                  </DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={() => {
+                      if (!("Notification" in window)) return;
+                      Notification.requestPermission().then((permission) => {
+                        toast[permission === "granted" ? "success" : "info"](
+                          permission === "granted"
+                            ? "Notifications enabled"
+                            : "Notifications not enabled",
+                        );
+                      });
+                    }}
+                  >
+                    <Bell className="mr-2 h-4 w-4" /> Enable notifications
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={logout}>
+                    <LogOut className="mr-2 h-4 w-4" /> Sign out
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </header>
           <div className="min-h-0 flex-1">
@@ -124,6 +229,8 @@ const Index = () => {
               onSelect={selectPeer}
               refreshKey={convRefresh}
               pinned={openedChats}
+              unreadCounts={unreadCounts}
+              hiddenUserIds={hiddenChats}
             />
           </div>
         </div>
@@ -139,6 +246,7 @@ const Index = () => {
               peer={peer}
               onBack={() => setPeer(null)}
               onMessageSent={() => setConvRefresh((n) => n + 1)}
+              onDeleteConversation={deleteActiveConversation}
             />
           ) : (
             <div className="chat-grid flex h-full flex-1 flex-col items-center justify-center px-6 text-center">
