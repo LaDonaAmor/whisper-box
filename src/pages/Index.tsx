@@ -1,14 +1,31 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Helmet } from "react-helmet-async";
-import { LogOut, Lock, Wifi, WifiOff, ShieldCheck } from "lucide-react";
+import {
+  Bell,
+  LogOut,
+  Lock,
+  ShieldCheck,
+  User,
+  Wifi,
+  WifiOff,
+} from "lucide-react";
 import AuthCard from "@/components/AuthCard";
 import ConversationsSidebar from "@/components/ConversationsSidebar";
 import ChatThread from "@/components/ChatThread";
 import ThemeToggle from "@/components/ThemeToggle";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
-import { onStatus } from "@/lib/ws";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { onMessage, onStatus } from "@/lib/ws";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 interface Peer {
   id: string;
@@ -16,23 +33,143 @@ interface Peer {
   username: string;
 }
 
+const UNREAD_KEY = "wb.unreadCounts";
+
+function readUnreadCounts(): Record<string, number> {
+  try {
+    return JSON.parse(sessionStorage.getItem(UNREAD_KEY) ?? "{}") as Record<
+      string,
+      number
+    >;
+  } catch {
+    return {};
+  }
+}
+
 const Index = () => {
   const { user, loading, locked, logout } = useAuth();
   const [peer, setPeer] = useState<Peer | null>(null);
   const [openedChats, setOpenedChats] = useState<Peer[]>([]);
+  const [hiddenChats, setHiddenChats] = useState<string[]>([]);
+  const [unreadCounts, setUnreadCounts] =
+    useState<Record<string, number>>(readUnreadCounts);
   const [convRefresh, setConvRefresh] = useState(0);
   const [wsStatus, setWsStatus] = useState<"connecting" | "open" | "closed">(
     "closed",
   );
+  const activePeerIdRef = useRef<string | null>(null);
 
   useEffect(() => onStatus(setWsStatus), []);
 
+  useEffect(() => {
+    activePeerIdRef.current = peer?.id ?? null;
+  }, [peer?.id]);
+
+  useEffect(() => {
+    sessionStorage.setItem(UNREAD_KEY, JSON.stringify(unreadCounts));
+  }, [unreadCounts]);
+
+  useEffect(() => {
+    if (!user || locked || !("Notification" in window)) return;
+    if (Notification.permission === "default") {
+      Notification.requestPermission().catch(() => undefined);
+    }
+  }, [user, locked]);
+
+  useEffect(() => {
+    if (!user) return;
+    return onMessage((msg) => {
+      if (msg.from_user_id === user.id) return;
+      const senderId = msg.from_user_id;
+      const isVisible =
+        document.visibilityState === "visible" && document.hasFocus();
+      const isActiveChat = activePeerIdRef.current === senderId && isVisible;
+
+      if (!isActiveChat) {
+        setUnreadCounts((prev) => ({
+          ...prev,
+          [senderId]: (prev[senderId] ?? 0) + 1,
+        }));
+        toast.info("New encrypted message", {
+          description: "Open the chat to decrypt it on this device.",
+        });
+        if ("Notification" in window && Notification.permission === "granted") {
+          new Notification("WhisperBox", {
+            body: "New encrypted message. Open WhisperBox to decrypt it.",
+            tag: msg.id,
+          });
+        }
+      }
+
+      setConvRefresh((n) => n + 1);
+    });
+  }, [user]);
+
+  useEffect(() => {
+    const clearActiveUnread = () => {
+      const activeId = activePeerIdRef.current;
+      if (
+        !activeId ||
+        document.visibilityState !== "visible" ||
+        !document.hasFocus()
+      ) {
+        return;
+      }
+      setUnreadCounts((prev) => {
+        if (!prev[activeId]) return prev;
+        const next = { ...prev };
+        delete next[activeId];
+        return next;
+      });
+    };
+
+    window.addEventListener("focus", clearActiveUnread);
+    document.addEventListener("visibilitychange", clearActiveUnread);
+    return () => {
+      window.removeEventListener("focus", clearActiveUnread);
+      document.removeEventListener("visibilitychange", clearActiveUnread);
+    };
+  }, []);
+
   function selectPeer(p: Peer) {
     setPeer(p);
+    setHiddenChats((prev) => prev.filter((id) => id !== p.id));
+    setUnreadCounts((prev) => {
+      if (!prev[p.id]) return prev;
+      const next = { ...prev };
+      delete next[p.id];
+      return next;
+    });
     setOpenedChats((prev) =>
       prev.some((x) => x.id === p.id) ? prev : [p, ...prev],
     );
   }
+
+  function deleteActiveConversation() {
+    if (!peer) return;
+    setHiddenChats((prev) =>
+      prev.includes(peer.id) ? prev : [...prev, peer.id],
+    );
+    setOpenedChats((prev) => prev.filter((p) => p.id !== peer.id));
+    setUnreadCounts((prev) => {
+      const next = { ...prev };
+      delete next[peer.id];
+      return next;
+    });
+    setPeer(null);
+    toast.success("Conversation hidden on this device");
+  }
+
+  async function handleLogout() {
+    sessionStorage.removeItem(UNREAD_KEY);
+    setUnreadCounts({});
+    await logout();
+  }
+
+  const totalUnread = Object.values(unreadCounts).reduce(
+    (sum, count) => sum + count,
+    0,
+  );
 
   if (loading) {
     return (
@@ -64,7 +201,9 @@ const Index = () => {
   return (
     <>
       <Helmet>
-        <title>WhisperBox - Secure Chat</title>
+        <title>
+          {totalUnread > 0 ? `(${totalUnread}) ` : ""}WhisperBox - Secure Chat
+        </title>
         <meta
           name="description"
           content="End-to-end encrypted messaging. Your conversations stay between you and the recipient."
@@ -107,15 +246,45 @@ const Index = () => {
             </div>
             <div className="flex items-center gap-1">
               <ThemeToggle />
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-9 w-9 rounded-lg"
-                onClick={logout}
-                aria-label="Sign out"
-              >
-                <LogOut className="h-4 w-4" />
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-9 w-9 rounded-lg"
+                    aria-label="Profile"
+                  >
+                    <User className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-64">
+                  <DropdownMenuLabel>
+                    <div className="truncate text-sm">{user.display_name}</div>
+                    <div className="truncate text-xs font-normal text-muted-foreground">
+                      @{user.username}
+                    </div>
+                  </DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={() => {
+                      if (!("Notification" in window)) return;
+                      Notification.requestPermission().then((permission) => {
+                        toast[permission === "granted" ? "success" : "info"](
+                          permission === "granted"
+                            ? "Notifications enabled"
+                            : "Notifications not enabled",
+                        );
+                      });
+                    }}
+                  >
+                    <Bell className="mr-2 h-4 w-4" /> Enable notifications
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={handleLogout}>
+                    <LogOut className="mr-2 h-4 w-4" /> Sign out
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </header>
           <div className="min-h-0 flex-1">
@@ -124,6 +293,8 @@ const Index = () => {
               onSelect={selectPeer}
               refreshKey={convRefresh}
               pinned={openedChats}
+              unreadCounts={unreadCounts}
+              hiddenUserIds={hiddenChats}
             />
           </div>
         </div>
@@ -139,6 +310,7 @@ const Index = () => {
               peer={peer}
               onBack={() => setPeer(null)}
               onMessageSent={() => setConvRefresh((n) => n + 1)}
+              onDeleteConversation={deleteActiveConversation}
             />
           ) : (
             <div className="chat-grid flex h-full flex-1 flex-col items-center justify-center px-6 text-center">
