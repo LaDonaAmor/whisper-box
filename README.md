@@ -7,6 +7,12 @@ All encryption and decryption happens in the browser with the Web Crypto API.
 The backend only stores authentication data, public keys, wrapped private-key
 blobs, and encrypted message payloads.
 
+**Live Demo:** https://whisper-box-chat.vercel.app/
+
+**Repository:** https://github.com/LaDonaAmor/whisper-box
+
+---
+
 ## Architecture
 
 ```mermaid
@@ -69,15 +75,15 @@ Implementation: `src/lib/crypto.ts`.
 3. `crypto.subtle.unwrapKey` unwraps the RSA private key as a non-extractable `CryptoKey`.
 4. The unwrapped private key is kept in memory only and cleared on reload or logout.
 
-| Material | Location | Persistence |
-| --- | --- | --- |
-| Public key | Backend and memory | Persistent on backend |
-| Wrapped private key | Backend | Persistent on backend |
-| PBKDF2 salt | Backend | Persistent on backend |
-| Unwrapped private key | Non-extractable `CryptoKey` in memory | Cleared on reload/logout |
-| Access token | Memory | Cleared on reload |
-| Refresh token | `sessionStorage` | Cleared when tab session ends |
-| Plaintext messages | Memory after decryption | Never persisted by the app |
+| Material              | Location                              | Persistence                   |
+| --------------------- | ------------------------------------- | ----------------------------- |
+| Public key            | Backend and memory                    | Persistent on backend         |
+| Wrapped private key   | Backend                               | Persistent on backend         |
+| PBKDF2 salt           | Backend                               | Persistent on backend         |
+| Unwrapped private key | Non-extractable `CryptoKey` in memory | Cleared on reload/logout      |
+| Access token          | Memory                                | Cleared on reload             |
+| Refresh token         | `sessionStorage`                      | Cleared when tab session ends |
+| Plaintext messages    | Memory after decryption               | Never persisted by the app    |
 
 No sensitive data is stored in `localStorage`.
 
@@ -103,19 +109,19 @@ No sensitive data is stored in `localStorage`.
 
 ## API Coverage
 
-| Feature | Endpoint |
-| --- | --- |
-| Register | `POST /auth/register` |
-| Login | `POST /auth/login` |
-| Restore profile | `GET /auth/me` |
-| Refresh access token | `POST /auth/refresh` |
-| Logout | `POST /auth/logout` |
-| Search users | `GET /users/search?q=` |
-| Fetch public key | `GET /users/{id}/public-key` |
-| Conversations | `GET /conversations` |
-| Message history | `GET /conversations/{id}/messages` |
-| Offline send fallback | `POST /messages` |
-| Real-time messages | `WS /ws?token=` |
+| Feature               | Endpoint                           |
+| --------------------- | ---------------------------------- |
+| Register              | `POST /auth/register`              |
+| Login                 | `POST /auth/login`                 |
+| Restore profile       | `GET /auth/me`                     |
+| Refresh access token  | `POST /auth/refresh`               |
+| Logout                | `POST /auth/logout`                |
+| Search users          | `GET /users/search?q=`             |
+| Fetch public key      | `GET /users/{id}/public-key`       |
+| Conversations         | `GET /conversations`               |
+| Message history       | `GET /conversations/{id}/messages` |
+| Offline send fallback | `POST /messages`                   |
+| Real-time messages    | `WS /ws?token=`                    |
 
 ## Tech Stack
 
@@ -127,17 +133,17 @@ No sensitive data is stored in `localStorage`.
 
 ## Source Map
 
-| Path | Purpose |
-| --- | --- |
-| `src/lib/crypto.ts` | Web Crypto operations |
-| `src/lib/api.ts` | REST client and token refresh |
-| `src/lib/ws.ts` | WebSocket client with reconnect |
-| `src/lib/session.ts` | In-memory private-key holder |
-| `src/contexts/AuthContext.tsx` | Auth and key lifecycle |
-| `src/components/AuthCard.tsx` | Login, register, unlock UI |
-| `src/components/ConversationsSidebar.tsx` | Conversations and user search |
-| `src/components/ChatThread.tsx` | Message history, decryption, composer |
-| `src/pages/Index.tsx` | Responsive app shell |
+| Path                                      | Purpose                               |
+| ----------------------------------------- | ------------------------------------- |
+| `src/lib/crypto.ts`                       | Web Crypto operations                 |
+| `src/lib/api.ts`                          | REST client and token refresh         |
+| `src/lib/ws.ts`                           | WebSocket client with reconnect       |
+| `src/lib/session.ts`                      | In-memory private-key holder          |
+| `src/contexts/AuthContext.tsx`            | Auth and key lifecycle                |
+| `src/components/AuthCard.tsx`             | Login, register, unlock UI            |
+| `src/components/ConversationsSidebar.tsx` | Conversations and user search         |
+| `src/components/ChatThread.tsx`           | Message history, decryption, composer |
+| `src/pages/Index.tsx`                     | Responsive app shell                  |
 
 ## Running Locally
 
@@ -152,6 +158,14 @@ Build verification:
 npm run build
 ```
 
+---
+
+## License
+
+Built for the HNGi14 internship Task.
+
 ## Author
 
 Racheal I. Ogunmodede (TechNurse)
+
+---
