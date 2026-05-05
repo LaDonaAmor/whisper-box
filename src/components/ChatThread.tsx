@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
-  Lock,
-  Send,
-  Loader2,
-  ShieldCheck,
   AlertTriangle,
   ArrowLeft,
+  CheckCheck,
+  Loader2,
+  Lock,
+  Send,
+  ShieldCheck,
 } from "lucide-react";
 import * as api from "@/lib/api";
 import {
@@ -15,11 +16,11 @@ import {
   publicKeyFingerprint,
 } from "@/lib/crypto";
 import { getOwnPrivateKey, getOwnPublicKey } from "@/lib/session";
-import { sendWs, onMessage } from "@/lib/ws";
+import { onMessage, sendWs } from "@/lib/ws";
 import type {
   DecryptedMessage,
-  MessageResponse,
   EncryptedPayload,
+  MessageResponse,
 } from "@/lib/types";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -41,14 +42,24 @@ function fmtDay(iso: string) {
   const d = new Date(iso);
   const now = new Date();
   if (d.toDateString() === now.toDateString()) return "Today";
-  const y = new Date(now);
-  y.setDate(now.getDate() - 1);
-  if (d.toDateString() === y.toDateString()) return "Yesterday";
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (d.toDateString() === yesterday.toDateString()) return "Yesterday";
   return d.toLocaleDateString([], {
     month: "short",
     day: "numeric",
     year: "numeric",
   });
+}
+
+function initials(name: string) {
+  return name
+    .split(/\s+/)
+    .map((p) => p[0])
+    .filter(Boolean)
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
 }
 
 export default function ChatThread({ peer, onBack, onMessageSent }: Props) {
@@ -57,7 +68,6 @@ export default function ChatThread({ peer, onBack, onMessageSent }: Props) {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [text, setText] = useState("");
-  // Removed setPeerPubKey since it was never read
   const [peerFingerprint, setPeerFingerprint] = useState<string>("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -69,12 +79,10 @@ export default function ChatThread({ peer, onBack, onMessageSent }: Props) {
     });
   };
 
-  // Load peer key + history
   useEffect(() => {
     let cancelled = false;
 
     (async () => {
-      // Set loading state inside the async block to avoid cascading renders
       setLoading(true);
       setMessages([]);
 
@@ -86,7 +94,6 @@ export default function ChatThread({ peer, onBack, onMessageSent }: Props) {
 
         if (cancelled) return;
 
-        // Verify key and fingerprint
         await importPublicKey(pubB64);
         setPeerFingerprint(await publicKeyFingerprint(pubB64));
 
@@ -142,7 +149,6 @@ export default function ChatThread({ peer, onBack, onMessageSent }: Props) {
     };
   }, [peer.id, user?.id]);
 
-  // Subscribe to WS for incoming messages
   useEffect(() => {
     const unsubscribe = onMessage(async (msg: MessageResponse) => {
       const isMine = msg.from_user_id === user?.id;
@@ -180,18 +186,10 @@ export default function ChatThread({ peer, onBack, onMessageSent }: Props) {
     });
 
     return () => {
-      if (typeof unsubscribe === "function") unsubscribe();
+      unsubscribe();
     };
-  }, [peer.id, user?.id, onMessageSent]); // Added onMessageSent to dependencies
+  }, [peer.id, user?.id, onMessageSent]);
 
-  // Auto-scroll to bottom on new messages
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    el.scrollTop = el.scrollHeight;
-  }, [messages.length, loading]);
-
-  // Smooth scroll for new message animations
   useEffect(() => {
     requestAnimationFrame(() => {
       scrollRef.current?.scrollTo({
@@ -199,7 +197,14 @@ export default function ChatThread({ peer, onBack, onMessageSent }: Props) {
         behavior: "smooth",
       });
     });
-  }, [messages]);
+  }, [messages, loading]);
+
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+  }, [text]);
 
   async function send(e?: FormEvent) {
     e?.preventDefault();
@@ -225,16 +230,33 @@ export default function ChatThread({ peer, onBack, onMessageSent }: Props) {
       const peerPubB64 = await api.getUserPublicKey(peer.id);
       const pubKey = await importPublicKey(peerPubB64);
       const payload = await encryptMessage(body, pubKey, ownPub);
-
-      sendWs({
+      const sentRealtime = sendWs({
         event: "message.send",
         to: peer.id,
         payload,
       });
 
-      setMessages((prev) =>
-        prev.map((m) => (m.id === tempId ? { ...m, pending: false } : m)),
-      );
+      if (sentRealtime) {
+        setMessages((prev) =>
+          prev.map((m) => (m.id === tempId ? { ...m, pending: false } : m)),
+        );
+      } else {
+        const saved = await api.sendMessageRest(peer.id, payload);
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === tempId
+              ? {
+                  ...m,
+                  id: saved.id,
+                  createdAt: saved.created_at,
+                  pending: false,
+                }
+              : m,
+          ),
+        );
+      }
+
+      onMessageSent?.();
     } catch {
       setMessages((prev) => prev.filter((m) => m.id !== tempId));
       toast.error("Failed to send message");
@@ -256,25 +278,20 @@ export default function ChatThread({ peer, onBack, onMessageSent }: Props) {
 
   return (
     <section className="flex h-full min-w-0 flex-1 flex-col">
-      <header className="flex items-center gap-3 border-b border-border bg-surface-glass/60 px-4 py-3 backdrop-blur-xl">
+      <header className="flex items-center gap-3 border-b border-border bg-surface-glass/95 px-4 py-3 backdrop-blur">
         {onBack && (
           <Button
             variant="ghost"
             size="icon"
-            className="h-9 w-9 rounded-full md:hidden"
+            className="h-9 w-9 rounded-lg md:hidden"
             onClick={onBack}
+            aria-label="Back to conversations"
           >
             <ArrowLeft className="h-4 w-4" />
           </Button>
         )}
         <div className="flex h-10 w-10 items-center justify-center rounded-full bg-mine text-sm font-semibold text-primary-foreground">
-          {peer.display_name
-            .split(/\s+/)
-            .map((p) => p[0])
-            .filter(Boolean)
-            .slice(0, 2)
-            .join("")
-            .toUpperCase()}
+          {initials(peer.display_name)}
         </div>
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-semibold leading-tight">
@@ -283,7 +300,7 @@ export default function ChatThread({ peer, onBack, onMessageSent }: Props) {
           <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
             <ShieldCheck className="h-3 w-3 text-success" />
             <span className="truncate">
-              E2E encrypted • key {peerFingerprint || "…"}
+              E2E encrypted - key {peerFingerprint || "..."}
             </span>
           </div>
         </div>
@@ -291,7 +308,7 @@ export default function ChatThread({ peer, onBack, onMessageSent }: Props) {
 
       <div
         ref={scrollRef}
-        className="scrollbar-thin flex-1 overflow-y-auto px-3 py-4 sm:px-6"
+        className="chat-grid scrollbar-thin flex-1 overflow-y-auto px-3 py-4 sm:px-6"
       >
         {loading ? (
           <div className="flex h-full items-center justify-center text-muted-foreground">
@@ -299,15 +316,12 @@ export default function ChatThread({ peer, onBack, onMessageSent }: Props) {
           </div>
         ) : messages.length === 0 ? (
           <div className="mx-auto mt-10 max-w-sm text-center">
-            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-accent text-accent-foreground">
+            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-lg bg-accent text-accent-foreground">
               <Lock className="h-5 w-5" />
             </div>
-            <p className="text-sm font-medium">
-              Start an encrypted conversation
-            </p>
+            <p className="text-sm font-medium">Start an encrypted conversation</p>
             <p className="mt-1 text-xs text-muted-foreground">
-              Messages are encrypted on this device and can only be read by{" "}
-              {peer.display_name}.
+              Only you and {peer.display_name} can decrypt this chat.
             </p>
           </div>
         ) : (
@@ -321,10 +335,8 @@ export default function ChatThread({ peer, onBack, onMessageSent }: Props) {
                   const isMine = m.fromUserId === user?.id;
                   const prev = g.items[i - 1];
                   const next = g.items[i + 1];
-                  const groupedWithPrev =
-                    prev && prev.fromUserId === m.fromUserId;
-                  const groupedWithNext =
-                    next && next.fromUserId === m.fromUserId;
+                  const groupedWithPrev = prev && prev.fromUserId === m.fromUserId;
+                  const groupedWithNext = next && next.fromUserId === m.fromUserId;
                   return (
                     <div
                       key={m.id}
@@ -335,16 +347,16 @@ export default function ChatThread({ peer, onBack, onMessageSent }: Props) {
                     >
                       <div
                         className={cn(
-                          "max-w-[78%] rounded-3xl px-4 py-2 text-[15px] leading-snug",
+                          "max-w-[78%] rounded-2xl px-4 py-2 text-[15px] leading-snug",
                           isMine ? "bubble-mine" : "bubble-theirs",
                           isMine
                             ? cn(
-                                groupedWithPrev ? "rounded-tr-md" : "",
-                                groupedWithNext ? "rounded-br-md" : "",
+                                groupedWithPrev ? "rounded-tr" : "",
+                                groupedWithNext ? "rounded-br" : "",
                               )
                             : cn(
-                                groupedWithPrev ? "rounded-tl-md" : "",
-                                groupedWithNext ? "rounded-bl-md" : "",
+                                groupedWithPrev ? "rounded-tl" : "",
+                                groupedWithNext ? "rounded-bl" : "",
                               ),
                           m.pending && "opacity-70",
                         )}
@@ -355,21 +367,26 @@ export default function ChatThread({ peer, onBack, onMessageSent }: Props) {
                             Could not decrypt this message
                           </span>
                         ) : (
-                          <span className="whitespace-pre-wrap wrap-break-words">
+                          <span className="whitespace-pre-wrap break-words">
                             {m.text}
                           </span>
                         )}
                         {!groupedWithNext && (
                           <div
                             className={cn(
-                              "mt-1 text-[10px]",
+                              "mt-1 flex items-center justify-end gap-1 text-[10px]",
                               isMine
-                                ? "text-primary-foreground/70"
+                                ? "text-primary-foreground/75"
                                 : "text-muted-foreground",
                             )}
                           >
-                            {fmtTime(m.createdAt)}
-                            {m.pending ? " • sending…" : ""}
+                            <span>{fmtTime(m.createdAt)}</span>
+                            {isMine &&
+                              (m.pending ? (
+                                <span>sending...</span>
+                              ) : (
+                                <CheckCheck className="h-3 w-3" />
+                              ))}
                           </div>
                         )}
                       </div>
@@ -384,10 +401,10 @@ export default function ChatThread({ peer, onBack, onMessageSent }: Props) {
 
       <form
         onSubmit={send}
-        className="border-t border-border bg-surface-glass/70 px-3 py-3 backdrop-blur-xl sm:px-6"
+        className="border-t border-border bg-surface-glass/95 px-3 py-3 backdrop-blur sm:px-6"
       >
         <div className="mx-auto flex max-w-3xl items-end gap-2">
-          <div className="flex flex-1 items-end rounded-3xl border border-border bg-surface px-4 py-2 shadow-bubble focus-within:border-primary/60 focus-within:ring-2 focus-within:ring-primary/20">
+          <div className="flex flex-1 items-end rounded-lg border border-border bg-surface px-3 py-2 shadow-bubble focus-within:border-primary/60 focus-within:ring-2 focus-within:ring-primary/20">
             <textarea
               ref={textareaRef}
               rows={1}
@@ -399,15 +416,15 @@ export default function ChatThread({ peer, onBack, onMessageSent }: Props) {
                   send();
                 }
               }}
-              placeholder="iMessage"
-              className="max-h-40 flex-1 resize-none bg-transparent text-[15px] leading-snug outline-none placeholder:text-muted-foreground"
+              placeholder="Message"
+              className="max-h-40 min-h-6 flex-1 resize-none bg-transparent text-[15px] leading-snug outline-none placeholder:text-muted-foreground"
             />
           </div>
           <Button
             type="submit"
             disabled={!text.trim() || sending}
             size="icon"
-            className="h-10 w-10 rounded-full bg-mine text-primary-foreground shadow-bubble hover:opacity-95 disabled:opacity-40"
+            className="h-10 w-10 rounded-lg bg-mine text-primary-foreground shadow-bubble hover:opacity-95 disabled:opacity-40"
             aria-label="Send"
           >
             {sending ? (
@@ -418,8 +435,7 @@ export default function ChatThread({ peer, onBack, onMessageSent }: Props) {
           </Button>
         </div>
         <p className="mx-auto mt-2 flex max-w-3xl items-center justify-center gap-1.5 text-[11px] text-muted-foreground">
-          <Lock className="h-3 w-3" /> Messages are end-to-end encrypted in your
-          browser
+          <Lock className="h-3 w-3" /> AES-GCM payload, RSA-OAEP key wrap
         </p>
       </form>
     </section>

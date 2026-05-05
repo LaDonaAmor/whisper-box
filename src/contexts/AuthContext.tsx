@@ -2,21 +2,20 @@ import {
   createContext,
   useContext,
   useEffect,
-  useMemo,
   useState,
   type ReactNode,
 } from "react";
 import * as api from "@/lib/api";
 import {
-  generateRsaKeypair,
   exportPublicKey,
-  wrapPrivateKey,
+  generateRsaKeypair,
   unwrapPrivateKey,
+  wrapPrivateKey,
 } from "@/lib/crypto";
 import {
-  setSessionKeys,
   clearSessionKeys,
   hasSessionKeys,
+  setSessionKeys,
 } from "@/lib/session";
 import { startWs, stopWs } from "@/lib/ws";
 import type { UserProfile } from "@/lib/types";
@@ -31,7 +30,7 @@ interface AuthContextValue {
     password: string,
   ) => Promise<void>;
   logout: () => Promise<void>;
-  locked: boolean; // session restored but no private key — needs password
+  locked: boolean; // session restored but no private key; needs password
   unlock: (password: string) => Promise<void>;
 }
 
@@ -42,7 +41,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [locked, setLocked] = useState(false);
 
-  // Try to restore via refresh token (no private key yet — user must unlock with password)
+  // Try to restore via refresh token. User must unlock the private key.
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -98,7 +97,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       wrapped_private_key: wrappedPrivateKey,
       pbkdf2_salt: salt,
     });
-    // Re-unwrap to get a non-extractable session key
     const priv = await unwrapPrivateKey(wrappedPrivateKey, salt, password);
     setSessionKeys(priv, publicKeyB64);
     setUser(res.user);
@@ -126,23 +124,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setLocked(false);
   }
 
-  // If user is set & not locked, ensure WS is running
   useEffect(() => {
     if (user && !locked && hasSessionKeys()) startWs();
   }, [user, locked]);
 
-  const value = useMemo<AuthContextValue>(
-    () => ({
-      user,
-      loading,
-      login: doLogin,
-      register: doRegister,
-      logout: doLogout,
-      locked,
-      unlock,
-    }),
-    [user, loading, locked],
-  );
+  const value: AuthContextValue = {
+    user,
+    loading,
+    login: doLogin,
+    register: doRegister,
+    logout: doLogout,
+    locked,
+    unlock,
+  };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

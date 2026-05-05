@@ -36,7 +36,7 @@ const Index = () => {
 
   if (loading) {
     return (
-      <main className="flex min-h-screen items-center justify-center">
+      <main className="flex min-h-screen items-center justify-center bg-background">
         <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
       </main>
     );
@@ -46,7 +46,7 @@ const Index = () => {
     return (
       <>
         <Helmet>
-          <title>WhisperBox — End-to-End Encrypted Messaging</title>
+          <title>WhisperBox - End-to-End Encrypted Messaging</title>
           <meta
             name="description"
             content="Private messaging with end-to-end encryption. Keys generated in your browser, never seen by the server."
@@ -54,7 +54,7 @@ const Index = () => {
           <link rel="canonical" href="/" />
         </Helmet>
         <main className="flex min-h-screen items-center justify-center px-4 py-10">
-          <h1 className="sr-only">WhisperBox — sign in</h1>
+          <h1 className="sr-only">WhisperBox - sign in</h1>
           <AuthCard initialMode={locked ? "unlock" : "login"} />
         </main>
       </>
@@ -64,7 +64,7 @@ const Index = () => {
   return (
     <>
       <Helmet>
-        <title>WhisperBox — Secure Chat</title>
+        <title>WhisperBox - Secure Chat</title>
         <meta
           name="description"
           content="End-to-end encrypted messaging. Your conversations stay between you and the recipient."
@@ -72,17 +72,16 @@ const Index = () => {
         <link rel="canonical" href="/" />
       </Helmet>
 
-      <main className="flex h-dvh w-full overflow-hidden">
-        {/* Sidebar column */}
+      <main className="flex h-dvh w-full overflow-hidden bg-background/70">
         <div
           className={cn(
-            "flex w-full flex-col border-r border-border md:w-85 md:max-w-95",
+            "flex w-full flex-col border-r border-border bg-sidebar md:w-85 md:max-w-95",
             peer && "hidden md:flex",
           )}
         >
-          <header className="flex items-center justify-between gap-3 border-b border-border bg-surface-glass/60 px-4 py-3 backdrop-blur-xl">
+          <header className="flex items-center justify-between gap-3 border-b border-border bg-surface-glass/95 px-4 py-3 backdrop-blur">
             <div className="flex min-w-0 items-center gap-2.5">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-mine text-primary-foreground shadow-bubble">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-mine text-primary-foreground shadow-bubble">
                 <ShieldCheck className="h-4.5 w-4.5" />
               </div>
               <div className="min-w-0">
@@ -96,7 +95,7 @@ const Index = () => {
                     </>
                   ) : wsStatus === "connecting" ? (
                     <>
-                      <Wifi className="h-3 w-3 animate-pulse" /> Connecting…
+                      <Wifi className="h-3 w-3 animate-pulse" /> Connecting...
                     </>
                   ) : (
                     <>
@@ -111,7 +110,7 @@ const Index = () => {
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-9 w-9 rounded-full"
+                className="h-9 w-9 rounded-lg"
                 onClick={logout}
                 aria-label="Sign out"
               >
@@ -129,10 +128,9 @@ const Index = () => {
           </div>
         </div>
 
-        {/* Chat column */}
         <div
           className={cn(
-            "flex min-w-0 flex-1 flex-col",
+            "flex min-w-0 flex-1 flex-col bg-background",
             !peer && "hidden md:flex",
           )}
         >
@@ -143,8 +141,8 @@ const Index = () => {
               onMessageSent={() => setConvRefresh((n) => n + 1)}
             />
           ) : (
-            <div className="flex h-full flex-1 flex-col items-center justify-center px-6 text-center">
-              <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-3xl bg-mine text-primary-foreground shadow-pop">
+            <div className="chat-grid flex h-full flex-1 flex-col items-center justify-center px-6 text-center">
+              <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-lg bg-mine text-primary-foreground shadow-pop">
                 <Lock className="h-7 w-7" />
               </div>
               <h2 className="text-xl font-semibold tracking-tight">
@@ -152,7 +150,7 @@ const Index = () => {
               </h2>
               <p className="mt-1 max-w-sm text-sm text-muted-foreground">
                 Or tap <span className="font-medium">+</span> to start a new
-                encrypted chat. Messages are encrypted on this device — the
+                encrypted chat. Messages are encrypted on this device; the
                 server only stores ciphertext.
               </p>
             </div>
