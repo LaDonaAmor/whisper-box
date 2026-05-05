@@ -1,6 +1,6 @@
 // WhisperBox API client with auto-refresh of access tokens.
-// Tokens kept in-memory; refresh token in sessionStorage (cleared on tab close).
-// Private key material is NEVER stored — it's re-derived from the password on login.
+// Tokens are kept in memory; refresh token is in sessionStorage.
+// Private key material is NEVER stored; it is re-derived from the password on login.
 
 import type {
   AuthResponse,
@@ -24,6 +24,7 @@ let refreshInflight: Promise<string> | null = null;
 export function getAccessToken() {
   return accessToken;
 }
+
 export function hasRefreshToken() {
   return !!refreshToken;
 }
@@ -104,7 +105,7 @@ async function apiFetch<T>(
       headers.set("Authorization", `Bearer ${tok}`);
       r = await fetch(`${API_BASE}${path}`, { ...init, headers });
     } catch {
-      /* fallthrough */
+      /* fall through */
     }
   }
   if (!r.ok) {
@@ -121,7 +122,6 @@ async function apiFetch<T>(
   return (await r.json()) as T;
 }
 
-// ---------- Auth ----------
 export async function register(body: {
   username: string;
   display_name: string;
@@ -176,7 +176,6 @@ export async function logout(): Promise<void> {
   clearTokens();
 }
 
-// ---------- Users ----------
 export async function searchUsers(q: string): Promise<UserPublicInfo[]> {
   const params = new URLSearchParams({ q });
   return apiFetch<UserPublicInfo[]>(`/users/search?${params}`);
@@ -189,7 +188,6 @@ export async function getUserPublicKey(userId: string): Promise<string> {
   return r.public_key;
 }
 
-// ---------- Conversations ----------
 export async function listConversations(): Promise<ConversationSummary[]> {
   return apiFetch<ConversationSummary[]>("/conversations");
 }
@@ -206,7 +204,6 @@ export async function listMessages(
   );
 }
 
-// ---------- Send (REST fallback) ----------
 export async function sendMessageRest(
   to: string,
   payload: ApiEncPayload,

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Search, Plus, Loader2, X } from "lucide-react";
+import { Loader2, MessageCircle, Plus, Search, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import * as api from "@/lib/api";
@@ -32,8 +32,9 @@ function formatTime(iso: string | null): string {
   const d = new Date(iso);
   const now = new Date();
   const sameDay = d.toDateString() === now.toDateString();
-  if (sameDay)
+  if (sameDay) {
     return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  }
   const diff = (now.getTime() - d.getTime()) / 86_400_000;
   if (diff < 7) return d.toLocaleDateString([], { weekday: "short" });
   return d.toLocaleDateString([], { month: "short", day: "numeric" });
@@ -50,9 +51,9 @@ export default function ConversationsSidebar({
   const [searching, setSearching] = useState(false);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<UserPublicInfo[]>([]);
-
-  // ✅ input ref for focusing
+  const [searchError, setSearchError] = useState("");
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const trimmedQuery = query.trim();
 
   useEffect(() => {
     let cancelled = false;
@@ -62,7 +63,7 @@ export default function ConversationsSidebar({
         const list = await api.listConversations();
         if (!cancelled) setConversations(list);
       } catch {
-        /* ignore */
+        if (!cancelled) setConversations([]);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -72,45 +73,69 @@ export default function ConversationsSidebar({
     };
   }, [refreshKey]);
 
-  // ✅ Auto-focus when search opens
   useEffect(() => {
-    if (searching) {
-      inputRef.current?.focus();
-    }
+    if (searching) inputRef.current?.focus();
   }, [searching]);
 
-  // Search debounced
   useEffect(() => {
-    if (!searching || query.trim().length < 1) {
-      setResults([]);
+    if (!searching || trimmedQuery.length < 1) {
       return;
     }
-    const t = setTimeout(async () => {
+    const t = window.setTimeout(async () => {
       try {
-        const r = await api.searchUsers(query.trim());
+        setSearchError("");
+        const r = await api.searchUsers(trimmedQuery);
         setResults(r);
       } catch {
-        /* ignore */
+        setResults([]);
+        setSearchError("Search unavailable");
       }
     }, 250);
-    return () => clearTimeout(t);
-  }, [query, searching]);
+    return () => window.clearTimeout(t);
+  }, [searching, trimmedQuery]);
+
+  const merged = (() => {
+    const map = new Map<string, ConversationSummary>();
+
+    for (const p of pinned) {
+      map.set(p.id, {
+        user_id: p.id,
+        display_name: p.display_name,
+        username: p.username,
+        last_message_at: null,
+      });
+    }
+
+    for (const c of conversations) map.set(c.user_id, c);
+
+    return Array.from(map.values()).sort((a, b) => {
+      const ta = a.last_message_at ? new Date(a.last_message_at).getTime() : 0;
+      const tb = b.last_message_at ? new Date(b.last_message_at).getTime() : 0;
+      return tb - ta;
+    });
+  })();
 
   return (
-    <aside className="flex h-full w-full flex-col border-r border-border bg-sidebar/60 backdrop-blur-xl">
+    <aside className="flex h-full w-full flex-col bg-sidebar">
       <header className="flex items-center justify-between gap-2 px-4 pt-5 pb-3">
-        <h2 className="text-lg font-semibold tracking-tight">Messages</h2>
+        <div>
+          <h2 className="text-lg font-semibold tracking-tight">Messages</h2>
+          <p className="text-xs text-muted-foreground">
+            {merged.length} conversation{merged.length === 1 ? "" : "s"}
+          </p>
+        </div>
 
         <Button
           variant="ghost"
           size="icon"
-          className="h-9 w-9 rounded-full hover:bg-accent"
+          className="h-9 w-9 rounded-lg hover:bg-accent"
           onClick={() => {
             setSearching((v) => !v);
             setQuery("");
             setResults([]);
+            setSearchError("");
           }}
-          aria-label="New conversation"
+          aria-label={searching ? "Close search" : "New conversation"}
         >
           {searching ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
         </Button>
@@ -119,31 +144,37 @@ export default function ConversationsSidebar({
       <div className="px-4 pb-3">
         <div className="relative">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-
-          {/* ✅ Accessible label */}
           <label htmlFor="search" className="sr-only">
             Search users
           </label>
-
           <Input
             id="search"
             ref={inputRef}
             tabIndex={0}
-            placeholder={searching ? "Find someone by username…" : "Search"}
+            placeholder={searching ? "Find by username" : "Search"}
             value={query}
             onChange={(e) => {
-              setQuery(e.target.value);
+              const next = e.target.value;
+              setQuery(next);
+              if (!next.trim()) {
+                setResults([]);
+                setSearchError("");
+              }
               if (!searching) setSearching(true);
             }}
-            className="h-10 rounded-xl bg-muted/60 pl-9"
+            className="h-10 rounded-lg bg-surface pl-9"
           />
         </div>
       </div>
 
       <div className="scrollbar-thin flex-1 overflow-y-auto px-2 pb-3">
-        {searching && query.trim() ? (
+        {searching && trimmedQuery ? (
           <ul className="space-y-1">
-            {results.length === 0 ? (
+            {searchError ? (
+              <li className="px-3 py-6 text-center text-sm text-muted-foreground">
+                {searchError}
+              </li>
+            ) : results.length === 0 ? (
               <li className="px-3 py-6 text-center text-sm text-muted-foreground">
                 No users found
               </li>
@@ -151,7 +182,7 @@ export default function ConversationsSidebar({
               results.map((u) => (
                 <li key={u.id}>
                   <button
-                    className="flex w-full cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-left transition hover:bg-accent"
+                    className="flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-left transition hover:bg-accent"
                     onClick={() => {
                       onSelect({
                         id: u.id,
@@ -166,7 +197,6 @@ export default function ConversationsSidebar({
                     <div className="flex h-10 w-10 items-center justify-center rounded-full bg-mine text-sm font-semibold text-primary-foreground">
                       {initials(u.display_name)}
                     </div>
-
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-sm font-medium">
                         {u.display_name}
@@ -184,82 +214,51 @@ export default function ConversationsSidebar({
           <div className="flex items-center justify-center py-10 text-muted-foreground">
             <Loader2 className="h-5 w-5 animate-spin" />
           </div>
+        ) : merged.length === 0 ? (
+          <div className="px-4 py-10 text-center text-sm text-muted-foreground">
+            <MessageCircle className="mx-auto mb-3 h-8 w-8 opacity-60" />
+            No conversations yet. Tap{" "}
+            <span className="font-medium text-foreground">+</span> to find someone.
+          </div>
         ) : (
-          (() => {
-            const map = new Map<string, ConversationSummary>();
-
-            for (const p of pinned) {
-              map.set(p.id, {
-                user_id: p.id,
-                display_name: p.display_name,
-                username: p.username,
-                last_message_at: null,
-              });
-            }
-
-            for (const c of conversations) map.set(c.user_id, c);
-
-            const merged = Array.from(map.values()).sort((a, b) => {
-              const ta = a.last_message_at
-                ? new Date(a.last_message_at).getTime()
-                : 0;
-              const tb = b.last_message_at
-                ? new Date(b.last_message_at).getTime()
-                : 0;
-              return tb - ta;
-            });
-
-            if (merged.length === 0) {
-              return (
-                <div className="px-4 py-10 text-center text-sm text-muted-foreground">
-                  No conversations yet. Tap{" "}
-                  <span className="font-medium">+</span> to find someone.
-                </div>
-              );
-            }
-
-            return (
-              <ul className="space-y-0.5">
-                {merged.map((c) => (
-                  <li key={c.user_id}>
-                    <button
-                      className={cn(
-                        "flex w-full cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-left transition",
-                        selectedUserId === c.user_id
-                          ? "bg-accent"
-                          : "hover:bg-accent/60",
-                      )}
-                      onClick={() =>
-                        onSelect({
-                          id: c.user_id,
-                          display_name: c.display_name,
-                          username: c.username,
-                        })
-                      }
-                    >
-                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-mine text-sm font-semibold text-primary-foreground">
-                        {initials(c.display_name)}
-                      </div>
-
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-baseline justify-between gap-2">
-                          <span className="truncate text-sm font-medium">
-                            {c.display_name}
-                          </span>
-                          <span className="shrink-0 text-[11px] text-muted-foreground">
-                            {formatTime(c.last_message_at)}
-                          </span>
-                        </div>
-                        <div className="truncate text-xs text-muted-foreground">
-                          @{c.username}
-                        </div>
-                      </div>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            );
-          })()
+          <ul className="space-y-0.5">
+            {merged.map((c) => (
+              <li key={c.user_id}>
+                <button
+                  className={cn(
+                    "flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-left transition",
+                    selectedUserId === c.user_id
+                      ? "bg-accent text-accent-foreground"
+                      : "hover:bg-accent/60",
+                  )}
+                  onClick={() =>
+                    onSelect({
+                      id: c.user_id,
+                      display_name: c.display_name,
+                      username: c.username,
+                    })
+                  }
+                >
+                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-mine text-sm font-semibold text-primary-foreground">
+                    {initials(c.display_name)}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="truncate text-sm font-medium">
+                        {c.display_name}
+                      </span>
+                      <span className="shrink-0 text-[11px] text-muted-foreground">
+                        {formatTime(c.last_message_at)}
+                      </span>
+                    </div>
+                    <div className="truncate text-xs text-muted-foreground">
+                      @{c.username}
+                    </div>
+                  </div>
+                </button>
+              </li>
+            ))}
+          </ul>
         )}
       </div>
     </aside>
